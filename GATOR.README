@@ -25,3 +25,7 @@ parse arg HLQ INS INS_ARGS
 Example output is in the GATOR.LUSERS AND GATOR.PATHS ALREADY
 All the GATOR code is in GATOR.GATOR
 CATSO is from https://github.com/mainframed/TShOcker/blob/master/CATSO.rexx
+
+
+Uploaded to GIT with https://github.com/wizardofzos/zigi/ <3
+Can clone it onto your system
