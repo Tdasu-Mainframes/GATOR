@@ -1,0 +1,20 @@
+# GATOR
+z/OS Mainframe Surrogat Tool:
+
+INSTRUCTIONS:
+/* GATOR.rexx NEEDS TO BE IN HLQ.GATOR */
+/* CATSO.rexx NEEDS TO BE IN HLQ.CATSO */
+/* PASS WITH NO PARAMATER OR HLQ TO SETUP */
+/* EX 'GATOR.GATOR' 'GATOR'
+/* CHOOSE A TARGET IN THE HLQ.PATHS PDSE AND RUN FOLLOWING */
+/* EX 'GATOR.GATOR' 'GATOR CATSO PRIVA1,172.16.0.54,1337' */
+
+
+PARAMATERS:
+parse arg HLQ INS INS_ARGS
+
+if HLQ == "" then HLQ = "GATOR"
+if INS == "" then call setup
+else if INS = "SURROGAT" then call gator
+else if INS = "CATSO" then call catso_setup
+else if INS = "CATSO_CONT" then call catso a
